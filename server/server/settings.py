@@ -45,10 +45,7 @@ LOGGING = {
 }
 
 
-ALLOWED_HOSTS = [
-    'mytest.com',
-    '127.0.0.1'
-]
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 
@@ -102,9 +99,9 @@ WSGI_APPLICATION = 'server.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'your-db-name',
-        'USER': 'root',
-        'PASSWORD': 'xxxxxxxx',
+        'NAME': 'python_db',
+        'USER': 'b2b',
+        'PASSWORD': 'b2bpass',
         'HOST': '127.0.0.1',
         'PORT': '3306',
         'CONN_MAX_AGE': 60,  # 连接复用时间
@@ -169,8 +166,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # 跨域配置
 CORS_ALLOW_CREDENTIALS = False
-CORS_ORIGIN_ALLOW_ALL = False  # 3.x之前写法
-CORS_ALLOW_ALL_ORIGINS = False  # 3.3以上写法
+CORS_ORIGIN_ALLOW_ALL = True
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = []
 
 
@@ -192,4 +189,4 @@ SENDER_PASS = 'xxxxxxxxxxxxxxxxxxxxx'
 
 # 域名
 # BASE_HOST_URL = 'http://127.0.0.1:8000'
-BASE_HOST_URL = 'http://mytest.com'
+BASE_HOST_URL = 'https://shop.defxx.ggff.net'

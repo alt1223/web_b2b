@@ -47,6 +47,12 @@ const nextConfig = {
     ],
     poweredByHeader: false,
     compress: true,
+    async rewrites() {
+        return [
+            { source: '/myapp/:path*', destination: 'http://127.0.0.1:8000/myapp/:path*' },
+            { source: '/upload/:path*', destination: 'http://127.0.0.1:8000/upload/:path*' },
+        ];
+    },
 };
 
 export default nextConfig;

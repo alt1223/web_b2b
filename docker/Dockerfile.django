@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    default-libmysqlclient-dev pkg-config build-essential \
+    libjpeg-dev zlib1g-dev libpng-dev libfreetype-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    Django==3.2.25 PyMySQL==1.0.2 djangorestframework==3.14.0 \
+    django-cors-headers==3.13.0 Pillow django-environ==0.10.0
+
+COPY . /app/
+
+# 代替 settings.py 中的连接参数为环境变量
+RUN python -c "\
+import re; \
+p='server/settings.py'; \
+s=open(p).read(); \
+s=re.sub(r\"ALLOWED_HOSTS\s*=\s*\[[^\]]*\]\", \"ALLOWED_HOSTS=['*']\", s, count=1); \
+s=re.sub(r\"'HOST':\s*'[^']*'\", \"'HOST': __import__('os').environ.get('DB_HOST','db')\", s); \
+s=re.sub(r\"'NAME':\s*'[^']*',\s*\n\s*'USER':\s*'[^']*',\s*\n\s*'PASSWORD':\s*'[^']*',\", \"'NAME': __import__('os').environ.get('DB_NAME','python_db'),\n        'USER': __import__('os').environ.get('DB_USER','b2b'),\n        'PASSWORD': __import__('os').environ.get('DB_PASS','b2bpass'),\", s, count=1); \
+s=re.sub(r\"CORS_ORIGIN_ALLOW_ALL\s*=\s*\w+\", \"CORS_ORIGIN_ALLOW_ALL=True\", s); \
+s=re.sub(r\"CORS_ALLOW_ALL_ORIGINS\s*=\s*\w+\", \"CORS_ALLOW_ALL_ORIGINS=True\", s); \
+open(p,'w').write(s)\
+"
+
+EXPOSE 8000
+CMD ["python","manage.py","runserver","0.0.0.0:8000","--noreload"]

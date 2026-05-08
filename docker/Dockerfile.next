@@ -1,0 +1,24 @@
+FROM node:18-alpine AS builder
+WORKDIR /app
+
+ARG NEXT_PUBLIC_HOST=localhost
+ENV NEXT_PUBLIC_HOST=$NEXT_PUBLIC_HOST
+
+COPY package.json package-lock.json* ./
+RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+COPY . .
+
+# 生成 .env、插入 rewrites、构建
+RUN printf "NEXT_PUBLIC_HOST=%s\nNEXT_PUBLIC_BASE_URL=\nNEXT_PUBLIC_DJANGO_BASE_URL=http://django:8000\nNEXT_PUBLIC_BASE_PATH=\nNEXT_PUBLIC_TEMPLATE_ID=010\n" "$NEXT_PUBLIC_HOST" > .env && \
+    if ! grep -q rewrites next.config.mjs; then \
+        sed -i "s|poweredByHeader: false,|poweredByHeader: false,\n    async rewrites() { return [{source:'/myapp/:path*',destination:'http://django:8000/myapp/:path*'},{source:'/upload/:path*',destination:'http://django:8000/upload/:path*'}]; },|" next.config.mjs; \
+    fi && \
+    npm run build
+
+FROM node:18-alpine
+WORKDIR /app
+ENV NODE_ENV=production PORT=3000
+COPY --from=builder /app /app
+EXPOSE 3000
+CMD ["npm","run","start"]

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+server/.venv/
+server/info.log
+
+# Node
+web/node_modules/
+web/.next/
+web/npm-debug.log*
+
+# Editor
+.idea/
+.vscode/
+.DS_Store
+
+# Docker
+*.local.yml
