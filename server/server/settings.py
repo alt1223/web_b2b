@@ -188,5 +188,5 @@ SENDER_EMAIL = '285126081@qq.com'
 SENDER_PASS = 'xxxxxxxxxxxxxxxxxxxxx'
 
 # 域名
-# BASE_HOST_URL = 'http://127.0.0.1:8000'
+# BASE_HOST_URL = 'https://shop.defxx.ggff.net'
 BASE_HOST_URL = 'https://shop.defxx.ggff.net'
