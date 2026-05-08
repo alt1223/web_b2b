@@ -21,7 +21,14 @@ sudo bash deploy.sh shop.example.com     # 指定域名
 ### 可选环境变量
 
 ```bash
-sudo DB_PASS=你的密码 ADMIN_RESET_PASS=newadmin NGINX_PORT=80 bash deploy.sh shop.example.com
+# 例：仅 HTTP，指定数据库密码
+sudo DB_PASS=你的密码 NGINX_PORT=80 bash deploy.sh shop.example.com
+
+# 例：启用 HTTPS（Let's Encrypt 自动签证，需 80/443 可达 + 域名已解析）
+sudo ENABLE_HTTPS=1 ADMIN_EMAIL=you@example.com bash deploy.sh shop.example.com
+
+# 例：非交互运行（CI/脚本），顺便重置后台密码
+sudo ADMIN_RESET_PASS=NewStrong#2025 bash deploy.sh shop.example.com
 ```
 
 | 变量 | 默认值 | 说明 |
@@ -29,8 +36,23 @@ sudo DB_PASS=你的密码 ADMIN_RESET_PASS=newadmin NGINX_PORT=80 bash deploy.sh
 | `DB_NAME` | `python_db` | 数据库名 |
 | `DB_USER` | `b2b` | 数据库用户 |
 | `DB_PASS` | `b2bpass` | 数据库密码 |
-| `NGINX_PORT` | `8080` | nginx 监听端口 |
-| `ADMIN_RESET_PASS` | `admin123` | 重置后台管理员密码（admin111 / admin）为此值 |
+| `NGINX_PORT` | `8080`（或 HTTPS 模式下 `80`） | nginx 监听端口 |
+| `ENABLE_HTTPS` | `0` | `1` 表示调用 certbot 申请 Let's Encrypt 证书并启用 80→43 重定向 |
+| `ADMIN_EMAIL` | 空 | 使用 HTTPS 时必须（证书联系邮箱），交互环境会提示输入 |
+| `ADMIN_RESET_PASS` | 空 | 重置后台账号 (admin111 / admin) 密码为此值（明文，适合脚本） |
+| `ADMIN_RESET_SKIP` | `0` | `1` 强制跳过重置 |
+
+> 默认交互执行时，脚本会询问是否重置后台密码，不询问则跳过。不会再把密码写进代码仓库。
+
+### HTTPS 快速开启 (场景: VPS 有独立公网 IP)
+
+1. 把域名 A 记录指向 VPS 公网 IP
+2. 运行：
+   ```bash
+   sudo ENABLE_HTTPS=1 ADMIN_EMAIL=you@example.com bash deploy.sh shop.example.com
+   ```
+3. 脚本会自动：安装 certbot → nginx 听 80 → 申请证书 → 配置 443 与 80→43 重定向
+4. 证书会自动续期（certbot 以 systemd timer 运行）。手动检查：`sudo certbot certificates`
 
 ### 完成后访问
 

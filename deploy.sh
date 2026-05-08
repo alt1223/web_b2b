@@ -6,12 +6,27 @@
 
 set -euo pipefail
 
+# 参数: deploy.sh [domain]
+# 环境变量:
+#   ENABLE_HTTPS=1   启用 Let's Encrypt 自动签证书（需要独立公网 IP 与 80/443 可达）
+#   ADMIN_EMAIL=...  与 ENABLE_HTTPS 配套使用，certbot 联系邮箱
+#   ADMIN_RESET_PASS 明文重置后台密码（role=1），不传进入交互询问
+#   ADMIN_RESET_SKIP=1  强制跳过重置
 DOMAIN="${1:-localhost}"
 DB_NAME="${DB_NAME:-python_db}"
 DB_USER="${DB_USER:-b2b}"
 DB_PASS="${DB_PASS:-b2bpass}"
-NGINX_PORT="${NGINX_PORT:-8080}"
-ADMIN_RESET_PASS="${ADMIN_RESET_PASS:-admin123}"
+ENABLE_HTTPS="${ENABLE_HTTPS:-0}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-}"
+ADMIN_RESET_PASS="${ADMIN_RESET_PASS:-}"
+ADMIN_RESET_SKIP="${ADMIN_RESET_SKIP:-0}"
+
+# 启用 HTTPS 时默认走 80（+ 443 重定向）；否则默认 8080
+if [[ "$ENABLE_HTTPS" == "1" ]]; then
+    NGINX_PORT="${NGINX_PORT:-80}"
+else
+    NGINX_PORT="${NGINX_PORT:-8080}"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${TARGET_DIR:-$SCRIPT_DIR}"
@@ -24,6 +39,16 @@ fail() { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || fail "请用 sudo 运行：sudo bash deploy.sh"
 [[ -d "$TARGET_DIR/server" && -d "$TARGET_DIR/web" ]] || fail "未找到 server/ 和 web/ 目录（在 $TARGET_DIR）"
 id "$RUN_USER" >/dev/null 2>&1 || fail "用户 $RUN_USER 不存在"
+
+if [[ "$ENABLE_HTTPS" == "1" ]]; then
+    [[ "$DOMAIN" != "localhost" && "$DOMAIN" != "127.0.0.1" ]] || fail "ENABLE_HTTPS=1 需要传入真实域名"
+    if [[ -z "$ADMIN_EMAIL" ]]; then
+        if [[ -t 0 ]]; then
+            read -rp "请输入 Let's Encrypt 联系邮箱: " ADMIN_EMAIL
+        fi
+        [[ -n "$ADMIN_EMAIL" ]] || fail "ENABLE_HTTPS=1 需要提供 ADMIN_EMAIL。可使用 ADMIN_EMAIL=you@example.com 环境变量"
+    fi
+fi
 
 log "使用变量:"
 echo "  TARGET_DIR=$TARGET_DIR"
@@ -140,11 +165,36 @@ done
 find "$TARGET_DIR/server/upload" -type d -exec chmod o+rx {} \; 2>/dev/null || true
 find "$TARGET_DIR/server/upload" -type f -exec chmod o+r {} \; 2>/dev/null || true
 
-# ---- 6. 重置管理员密码 ----
-if [[ -n "$ADMIN_RESET_PASS" ]]; then
-    log "重置管理员密码为 $ADMIN_RESET_PASS..."
-    HASH=$(python3 -c "import hashlib;print(hashlib.sha256(('$ADMIN_RESET_PASS'+'987654321hello').encode()).hexdigest()[:32])")
+# ---- 6. 重置管理员密码（交互式，默认不重置）----
+ADMIN_RESET_FINAL_PASS=""
+if [[ "$ADMIN_RESET_SKIP" == "1" ]]; then
+    warn "已跳过管理员密码重置 (ADMIN_RESET_SKIP=1)"
+elif [[ -n "$ADMIN_RESET_PASS" ]]; then
+    ADMIN_RESET_FINAL_PASS="$ADMIN_RESET_PASS"
+elif [[ -t 0 ]]; then
+    echo
+    read -rp "是否重置后台管理员密码 (admin111 / admin) ? [y/N]: " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        while :; do
+            read -rsp "  输入新密码: " p1; echo
+            read -rsp "  再输一次确认: " p2; echo
+            if [[ "$p1" == "$p2" && -n "$p1" && ${#p1} -ge 6 ]]; then
+                ADMIN_RESET_FINAL_PASS="$p1"; break
+            fi
+            warn "两次输入不一致或不满 6 位，请重试"
+        done
+    else
+        warn "跳过管理员密码重置"
+    fi
+else
+    warn "非交互环境且未设置 ADMIN_RESET_PASS，跳过重置"
+fi
+
+if [[ -n "$ADMIN_RESET_FINAL_PASS" ]]; then
+    log "重置管理员密码..."
+    HASH=$(python3 -c "import hashlib,sys;print(hashlib.sha256((sys.argv[1]+'987654321hello').encode()).hexdigest()[:32])" "$ADMIN_RESET_FINAL_PASS")
     mysql "$DB_NAME" -e "UPDATE b_user SET password='$HASH' WHERE role=1;" || true
+    log "已重置。账号: admin111 / admin"
 fi
 
 # ---- 7. systemd 服务 ----
@@ -188,10 +238,14 @@ EOF
 
 # ---- 8. nginx ----
 log "写入 nginx 配置 (端口 $NGINX_PORT)..."
+LISTEN_LINE="listen $NGINX_PORT default_server;\n    listen [::]:$NGINX_PORT default_server;"
+if [[ "$ENABLE_HTTPS" == "1" && "$NGINX_PORT" == "80" ]]; then
+    # HTTPS 模式下，80 不设为 default_server（留给 443）
+    LISTEN_LINE="listen 80;\n    listen [::]:80;"
+fi
 cat > /etc/nginx/sites-available/b2b <<EOF
 server {
-    listen $NGINX_PORT default_server;
-    listen [::]:$NGINX_PORT default_server;
+    $(printf "$LISTEN_LINE")
     server_name $DOMAIN _;
 
     client_max_body_size 100M;
@@ -245,6 +299,24 @@ ln -sf /etc/nginx/sites-available/b2b /etc/nginx/sites-enabled/b2b
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
 
+# ---- 8b. Let's Encrypt ----
+if [[ "$ENABLE_HTTPS" == "1" ]]; then
+    log "安装 certbot 并申请 Let's Encrypt 证书 ($DOMAIN)..."
+    apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
+    systemctl reload nginx
+    # 检查域名是否解析到本机
+    PUB_IP=$(curl -fsS --max-time 5 https://api.ipify.org || echo "")
+    DOM_IP=$(getent hosts "$DOMAIN" | awk 'NR==1{print $1}')
+    if [[ -n "$PUB_IP" && -n "$DOM_IP" && "$PUB_IP" != "$DOM_IP" ]]; then
+        warn "域名 $DOMAIN 解析到 $DOM_IP，但本机公网 IP 是 $PUB_IP。certbot 很可能失败。"
+    fi
+    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect -m "$ADMIN_EMAIL" --no-eff-email; then
+        log "✅ 证书申请成功，已启用 HTTPS 并重定向 80→43"
+    else
+        warn "certbot 申请失败。检查：1) 域名 DNS 是否指向本机 2) 80 端口是否可达 3) 防火墙。HTTP 仍可用。"
+    fi
+fi
+
 # ---- 9. 启动服务 ----
 log "启动所有服务..."
 systemctl daemon-reload
@@ -263,17 +335,25 @@ for i in $(seq 1 10); do
     sleep 2
 done
 
+if [[ "$ENABLE_HTTPS" == "1" ]] && certbot certificates 2>/dev/null | grep -q "$DOMAIN"; then
+    URL="https://$DOMAIN/"
+else
+    URL="http://${DOMAIN}:${NGINX_PORT}/"
+    [[ "$NGINX_PORT" == "80" ]] && URL="http://${DOMAIN}/"
+fi
+ADMIN_TIP="admin111 / 你设置的新密码"
+[[ -z "$ADMIN_RESET_FINAL_PASS" ]] && ADMIN_TIP="admin111 / (未重置，使用原密码或数据库中的密码)"
+
 cat <<DONE
 
 ✅ 部署完成
 
 访问地址:
-  http://localhost:$NGINX_PORT/
-  后台登录: http://localhost:$NGINX_PORT/adminLogin (admin111 / $ADMIN_RESET_PASS)
+  $URL
+  后台登录: ${URL}adminLogin ($ADMIN_TIP)
 
 服务管理:
   systemctl status b2b-django b2b-next nginx
   journalctl -u b2b-next -f
 
-如需绑定域名，请参考 README 中 Cloudflare Worker 部分。
 DONE
