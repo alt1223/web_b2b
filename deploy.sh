@@ -6,16 +6,32 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 加载 .env（如果存在）
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
 # 参数: deploy.sh [domain]
 # 环境变量:
 #   ENABLE_HTTPS=1   启用 Let's Encrypt 自动签证书（需要独立公网 IP 与 80/443 可达）
 #   ADMIN_EMAIL=...  与 ENABLE_HTTPS 配套使用，certbot 联系邮箱
 #   ADMIN_RESET_PASS 明文重置后台密码（role=1），不传进入交互询问
 #   ADMIN_RESET_SKIP=1  强制跳过重置
-DOMAIN="${1:-localhost}"
+DOMAIN="${1:-${DOMAIN:-localhost}}"
 DB_NAME="${DB_NAME:-python_db}"
 DB_USER="${DB_USER:-b2b}"
-DB_PASS="${DB_PASS:-b2bpass}"
+DB_PASS="${DB_PASS:-}"
+
+# 如果密码未设，生成随机密码
+if [[ -z "$DB_PASS" ]]; then
+    DB_PASS=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)
+    warn_pw_generated=1
+fi
 ENABLE_HTTPS="${ENABLE_HTTPS:-0}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_RESET_PASS="${ADMIN_RESET_PASS:-}"
@@ -28,7 +44,6 @@ else
     NGINX_PORT="${NGINX_PORT:-8080}"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${TARGET_DIR:-$SCRIPT_DIR}"
 RUN_USER="${SUDO_USER:-${USER}}"
 
@@ -54,7 +69,22 @@ log "使用变量:"
 echo "  TARGET_DIR=$TARGET_DIR"
 echo "  RUN_USER=$RUN_USER"
 echo "  DOMAIN=$DOMAIN  NGINX_PORT=$NGINX_PORT"
-echo "  DB=$DB_NAME / $DB_USER / $DB_PASS"
+echo "  DB=$DB_NAME / $DB_USER / ${DB_PASS:0:3}******"
+if [[ "${warn_pw_generated:-0}" == "1" ]]; then
+    warn "未提供 DB_PASS，已自动生成随机密码。保存到 .env 以便后续复用"
+    if [[ ! -f "$TARGET_DIR/.env" ]]; then
+        cat > "$TARGET_DIR/.env" <<EOF
+DOMAIN=$DOMAIN
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
+DB_PASS=$DB_PASS
+NGINX_PORT=$NGINX_PORT
+EOF
+        chmod 600 "$TARGET_DIR/.env"
+        chown "$RUN_USER:$RUN_USER" "$TARGET_DIR/.env"
+        log "已写入 $TARGET_DIR/.env (权限 600)"
+    fi
+fi
 echo
 
 # ---- 1. 系统依赖 ----

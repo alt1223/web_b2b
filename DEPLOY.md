@@ -87,8 +87,13 @@ sudo systemctl restart b2b-django
 ```bash
 git clone <本项目地址> web_b2b
 cd web_b2b
+cp .env.example .env
+# 编辑 .env设置 DB_PASS 和 DB_ROOT_PASS
+$EDITOR .env
 docker compose up -d --build
 ```
+
+> `.env` 中的 `DB_PASS` / `DB_ROOT_PASS` **必须设值**，未设置 Compose 会报错。
 
 首次启动会自动创建数据库并导入 `web_b2b.sql` 初始数据。
 

@@ -16,3 +16,8 @@ web/npm-debug.log*
 
 # Docker
 *.local.yml
+
+# Secrets / local config
+.env
+!.env.example
+web/.env

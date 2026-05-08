@@ -3,10 +3,10 @@ services:
     image: mariadb:10.11
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: python_db
-      MYSQL_USER: b2b
-      MYSQL_PASSWORD: b2bpass
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?Set DB_ROOT_PASS in .env}
+      MYSQL_DATABASE: ${DB_NAME:-python_db}
+      MYSQL_USER: ${DB_USER:-b2b}
+      MYSQL_PASSWORD: ${DB_PASS:?Set DB_PASS in .env}
     volumes:
       - db_data:/var/lib/mysql
       - ./web_b2b.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -25,9 +25,9 @@ services:
         condition: service_healthy
     environment:
       DB_HOST: db
-      DB_NAME: python_db
-      DB_USER: b2b
-      DB_PASS: b2bpass
+      DB_NAME: ${DB_NAME:-python_db}
+      DB_USER: ${DB_USER:-b2b}
+      DB_PASS: ${DB_PASS:?Set DB_PASS in .env}
       DOMAIN: ${DOMAIN:-localhost}
     volumes:
       - ./server/upload:/app/upload
